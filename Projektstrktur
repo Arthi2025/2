@@ -1,0 +1,11 @@
+manki-dashboard/
+├── public/
+│   ├── css/
+│   │   └── style.css
+│   ├── index.html
+│   ├── login.html
+│   ├── register.html
+│   └── dashboard.html
+├── server.js
+├── package.json
+└── .render.yaml
