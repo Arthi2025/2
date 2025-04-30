@@ -40,6 +40,12 @@ db.serialize(() => {
     team_id INTEGER,
     status TEXT
   )`);
+  db.run(`CREATE TABLE IF NOT EXISTS team_invitations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id INTEGER,
+    player_id INTEGER,
+    status TEXT
+  )`);
 });
 
 // Registrierung
@@ -72,7 +78,7 @@ app.get('/logout', (req, res) => {
   res.redirect('/login.html');
 });
 
-// Team erstellen + automatisch zuweisen
+// Team erstellen
 app.post('/create-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { name } = req.body;
@@ -102,7 +108,7 @@ app.get('/teams', (req, res) => {
   });
 });
 
-// Team-Mitglieder abrufen
+// Mitglieder eines Teams
 app.get('/team-members', (req, res) => {
   db.all(`
     SELECT tr.team_id, u.username
@@ -115,7 +121,7 @@ app.get('/team-members', (req, res) => {
   });
 });
 
-// Anfrage senden (wenn < 5 Mitglieder)
+// Teamanfrage stellen
 app.post('/request-to-team', (req, res) => {
   const { team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -133,7 +139,7 @@ app.post('/request-to-team', (req, res) => {
     });
 });
 
-// Anfragen abrufen
+// Eigene Anfragen anzeigen
 app.get('/requests', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
 
@@ -200,7 +206,7 @@ app.get('/players-without-team', (req, res) => {
   });
 });
 
-// Spieler sucht Team setzen
+// Suchstatus setzen
 app.post('/set-looking', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { status } = req.body;
@@ -211,12 +217,29 @@ app.post('/set-looking', (req, res) => {
     });
 });
 
-// Spieler die ein Team suchen
-app.get('/players-looking', (req, res) => {
-  db.all(`SELECT username FROM users WHERE looking_for_team = 1`, [], (err, rows) => {
+// Spieler suchen Team (detailliert für Einladungen)
+app.get('/players-looking-detailed', (req, res) => {
+  db.all(`
+    SELECT u.id, u.username FROM users u
+    WHERE u.looking_for_team = 1 AND u.id NOT IN (
+      SELECT player_id FROM team_requests WHERE status = 'accepted'
+    )
+  `, [], (err, rows) => {
     if (err) return res.send('Fehler');
     res.json(rows);
   });
+});
+
+// Einladung an suchenden Spieler
+app.post('/invite-player', (req, res) => {
+  if (!req.session.userId || req.session.role !== 'creator') return res.redirect('/login.html');
+  const { player_id, team_id } = req.body;
+
+  db.run(`INSERT INTO team_invitations (team_id, player_id, status) VALUES (?, ?, 'pending')`,
+    [team_id, player_id], err => {
+      if (err) return res.send('Fehler beim Einladen');
+      res.redirect('/dashboard.html');
+    });
 });
 
 // Server starten
