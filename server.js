@@ -18,7 +18,7 @@ app.use(session({
 }));
 app.use(express.static('public'));
 
-// 👉 Fix: Route für /
+// 👉 Route für Startseite
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
@@ -31,7 +31,7 @@ const db = new sqlite3.Database(dbPath);
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT UNIQUE,
+    username TEXT UNIQUE,
     password TEXT,
     role TEXT
   )`);
@@ -50,19 +50,22 @@ db.serialize(() => {
 
 // Registrierung
 app.post('/register', async (req, res) => {
-  const { email, password, role } = req.body;
+  const { username, password, role } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
-  db.run(`INSERT INTO users (email, password, role) VALUES (?, ?, ?)`,
-    [email, hashedPassword, role], err => {
-      if (err) return res.send('Fehler bei Registrierung');
+  db.run(`INSERT INTO users (username, password, role) VALUES (?, ?, ?)`,
+    [username, hashedPassword, role], err => {
+      if (err) {
+        console.error('Fehler bei Registrierung:', err.message);
+        return res.send('Registrierung fehlgeschlagen');
+      }
       res.redirect('/login.html');
     });
 });
 
 // Login
 app.post('/login', (req, res) => {
-  const { email, password } = req.body;
-  db.get(`SELECT * FROM users WHERE email = ?`, [email], async (err, user) => {
+  const { username, password } = req.body;
+  db.get(`SELECT * FROM users WHERE username = ?`, [username], async (err, user) => {
     if (!user || !(await bcrypt.compare(password, user.password))) {
       return res.send('Login fehlgeschlagen');
     }
@@ -108,12 +111,14 @@ app.post('/request-to-team', (req, res) => {
     });
 });
 
-// Anfragen abrufen
+// Anfragen anzeigen
 app.get('/requests', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
+
   if (req.session.role === 'creator') {
+    // Anfragen für Team-Ersteller
     db.all(`
-      SELECT tr.id, u.email as player_email, t.name as team_name, tr.status
+      SELECT tr.id, u.username as player_username, t.name as team_name, tr.status
       FROM team_requests tr
       JOIN users u ON tr.player_id = u.id
       JOIN teams t ON tr.team_id = t.id
@@ -122,7 +127,9 @@ app.get('/requests', (req, res) => {
       if (err) return res.send('Fehler');
       res.json(requests);
     });
+
   } else {
+    // Eigene Anfragen für Spieler
     db.all(`
       SELECT tr.id, t.name as team_name, tr.status
       FROM team_requests tr
@@ -151,6 +158,5 @@ app.post('/handle-request', (req, res) => {
 app.listen(port, () => {
   console.log(`🚀 Server läuft auf Port ${port}`);
 });
-
 
 
