@@ -24,6 +24,17 @@
     `;
     content.appendChild(teamForm);
 
+    // Formular "Ich suche ein Team"
+    const searchForm = document.createElement('div');
+    searchForm.innerHTML = `
+      <h2>Suchstatus</h2>
+      <form action="/set-looking" method="POST">
+        <button type="submit" name="status" value="1">Ich suche ein Team</button>
+        <button type="submit" name="status" value="0">Nicht mehr suchend</button>
+      </form>
+    `;
+    content.appendChild(searchForm);
+
     // Teams + Mitglieder + Anfragen laden
     Promise.all([
       fetch('/teams').then(res => res.json()),
@@ -31,7 +42,7 @@
       fetch('/requests').then(res => res.json())
     ]).then(([teams, members, requests]) => {
       const teamSection = document.createElement('div');
-      teamSection.innerHTML = '<h2>Teamsuche</h2>';
+      teamSection.innerHTML = '<h2>Alle Teams</h2>';
 
       if (teams.length === 0) {
         teamSection.innerHTML += '<p>Keine Teams vorhanden.</p>';
@@ -50,12 +61,16 @@
             <div class="card">
               <h3>${team.name}</h3>
               <p><strong>Mitglieder:</strong> ${teamMembers}</p>
-              ${!hasRequest ? `
+              ${team.member_count < 5 && !hasRequest ? `
                 <form action="/request-to-team" method="POST">
                   <input type="hidden" name="team_id" value="${team.id}">
                   <button type="submit">Anfrage senden</button>
                 </form>
-              ` : `<p><em>Du hast bereits angefragt oder bist Mitglied</em></p>`}
+              ` : team.member_count >= 5 ? `
+                <p><em>Team ist voll</em></p>
+              ` : `
+                <p><em>Du hast bereits angefragt oder bist Mitglied</em></p>
+              `}
             </div>
           `;
         });
@@ -64,18 +79,18 @@
       content.appendChild(teamSection);
     });
 
-    // Eigene Anfragen anzeigen
+    // Meine Anfragen
     fetch('/requests')
       .then(res => res.json())
       .then(requests => {
-        const requestSection = document.createElement('div');
-        requestSection.innerHTML = '<h2>Meine Anfragen</h2>';
+        const section = document.createElement('div');
+        section.innerHTML = '<h2>Meine Anfragen</h2>';
 
         if (requests.length === 0) {
-          requestSection.innerHTML += '<p>Keine Anfragen vorhanden.</p>';
+          section.innerHTML += '<p>Keine Anfragen vorhanden.</p>';
         } else {
           requests.forEach(req => {
-            requestSection.innerHTML += `
+            section.innerHTML += `
               <div class="card">
                 <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
                 <p>Status: ${req.status}</p>
@@ -90,10 +105,10 @@
           });
         }
 
-        content.appendChild(requestSection);
+        content.appendChild(section);
       });
 
-    // Spieler in Teams anzeigen
+    // Spieler in Teams
     fetch('/players-in-teams')
       .then(res => res.json())
       .then(players => {
@@ -109,7 +124,7 @@
         content.appendChild(section);
       });
 
-    // Spieler ohne Team anzeigen
+    // Spieler ohne Team
     fetch('/players-without-team')
       .then(res => res.json())
       .then(players => {
@@ -124,7 +139,24 @@
         }
         content.appendChild(section);
       });
+
+    // Spieler suchen ein Team
+    fetch('/players-looking')
+      .then(res => res.json())
+      .then(players => {
+        const section = document.createElement('div');
+        section.innerHTML = '<h2>Spieler suchen ein Team</h2>';
+        if (players.length === 0) {
+          section.innerHTML += '<p>Keiner sucht aktuell ein Team.</p>';
+        } else {
+          players.forEach(p => {
+            section.innerHTML += `<div class="card">${p.username}</div>`;
+          });
+        }
+        content.appendChild(section);
+      });
   </script>
 </body>
 </html>
+
 
