@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <h1>Dashboard</h1>
+  <a href="/logout">Logout</a>
+  <div id="dashboard-content"></div>
+
+  <script>
+    const content = document.getElementById('dashboard-content');
+
+    fetch('/teams')
+      .then(res => res.json())
+      .then(teams => {
+        const teamSection = document.createElement('div');
+        teamSection.innerHTML = '<h2>Teamsuche</h2>';
+        teams.forEach(team => {
+          teamSection.innerHTML += `
+            <div class="card">
+              <h3>${team.name}</h3>
+              <form action="/request-to-team" method="POST">
+                <input type="hidden" name="team_id" value="${team.id}">
+                <button type="submit">Anfrage senden</button>
+              </form>
+            </div>
+          `;
+        });
+        content.appendChild(teamSection);
+      });
+
+    fetch('/requests')
+      .then(res => res.json())
+      .then(requests => {
+        const requestSection = document.createElement('div');
+        requestSection.innerHTML = '<h2>Meine Anfragen</h2>';
+        requests.forEach(req => {
+          requestSection.innerHTML += `
+            <div class="card">
+              <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_email}</p>
+              <p>Status: ${req.status}</p>
+              ${req.status === 'pending' && req.player_email ? `
+                <form action="/handle-request" method="POST">
+                  <input type="hidden" name="request_id" value="${req.id}">
+                  <button type="submit" name="action" value="accept">Annehmen</button>
+                  <button type="submit" name="action" value="decline">Ablehnen</button>
+                </form>` : ''}
+            </div>
+          `;
+        });
+        content.appendChild(requestSection);
+      });
+  </script>
+</body>
+</html>
