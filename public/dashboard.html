@@ -13,7 +13,7 @@
   <script>
     const content = document.getElementById('dashboard-content');
 
-    // TEAM ERSTELLEN
+    // Team erstellen
     const teamForm = document.createElement('div');
     teamForm.innerHTML = `
       <h2>Neues Team erstellen</h2>
@@ -24,11 +24,12 @@
     `;
     content.appendChild(teamForm);
 
-    // TEAMS + MITGLIEDER LADEN
+    // Teams + Mitglieder + Anfragen laden
     Promise.all([
       fetch('/teams').then(res => res.json()),
-      fetch('/team-members').then(res => res.json())
-    ]).then(([teams, members]) => {
+      fetch('/team-members').then(res => res.json()),
+      fetch('/requests').then(res => res.json())
+    ]).then(([teams, members, requests]) => {
       const teamSection = document.createElement('div');
       teamSection.innerHTML = '<h2>Teamsuche</h2>';
 
@@ -41,14 +42,20 @@
             .map(m => m.username)
             .join(', ') || 'Noch keine Mitglieder';
 
+          const hasRequest = requests.some(r =>
+            r.team_name === team.name && (r.status === 'pending' || r.status === 'accepted')
+          );
+
           teamSection.innerHTML += `
             <div class="card">
               <h3>${team.name}</h3>
               <p><strong>Mitglieder:</strong> ${teamMembers}</p>
-              <form action="/request-to-team" method="POST">
-                <input type="hidden" name="team_id" value="${team.id}">
-                <button type="submit">Anfrage senden</button>
-              </form>
+              ${!hasRequest ? `
+                <form action="/request-to-team" method="POST">
+                  <input type="hidden" name="team_id" value="${team.id}">
+                  <button type="submit">Anfrage senden</button>
+                </form>
+              ` : `<p><em>Du hast bereits angefragt oder bist Mitglied</em></p>`}
             </div>
           `;
         });
@@ -57,7 +64,7 @@
       content.appendChild(teamSection);
     });
 
-    // ANFRAGEN LADEN
+    // Eigene Anfragen anzeigen
     fetch('/requests')
       .then(res => res.json())
       .then(requests => {
@@ -86,7 +93,7 @@
         content.appendChild(requestSection);
       });
 
-    // SPIELER IN TEAMS LADEN
+    // Spieler in Teams anzeigen
     fetch('/players-in-teams')
       .then(res => res.json())
       .then(players => {
@@ -102,7 +109,7 @@
         content.appendChild(section);
       });
 
-    // SPIELER OHNE TEAM LADEN
+    // Spieler ohne Team anzeigen
     fetch('/players-without-team')
       .then(res => res.json())
       .then(players => {
@@ -120,3 +127,4 @@
   </script>
 </body>
 </html>
+
