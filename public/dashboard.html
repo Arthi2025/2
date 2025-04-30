@@ -13,7 +13,7 @@
   <script>
     const content = document.getElementById('dashboard-content');
 
-    // TEAM ERSTELLEN Formular anzeigen (immer sichtbar)
+    // TEAM ERSTELLEN
     const teamForm = document.createElement('div');
     teamForm.innerHTML = `
       <h2>Neues Team erstellen</h2>
@@ -24,47 +24,42 @@
     `;
     content.appendChild(teamForm);
 
-    // TEAMS LADEN
-    fetch('/teams')
-      .then(res => {
-        if (res.redirected) {
-          window.location.href = res.url;
-          return [];
-        }
-        return res.json();
-      })
-      .then(teams => {
-        const teamSection = document.createElement('div');
-        teamSection.innerHTML = '<h2>Teamsuche</h2>';
+    // TEAMS + MITGLIEDER LADEN
+    Promise.all([
+      fetch('/teams').then(res => res.json()),
+      fetch('/team-members').then(res => res.json())
+    ]).then(([teams, members]) => {
+      const teamSection = document.createElement('div');
+      teamSection.innerHTML = '<h2>Teamsuche</h2>';
 
-        if (teams.length === 0) {
-          teamSection.innerHTML += '<p>Keine Teams vorhanden.</p>';
-        } else {
-          teams.forEach(team => {
-            teamSection.innerHTML += `
-              <div class="card">
-                <h3>${team.name}</h3>
-                <form action="/request-to-team" method="POST">
-                  <input type="hidden" name="team_id" value="${team.id}">
-                  <button type="submit">Anfrage senden</button>
-                </form>
-              </div>
-            `;
-          });
-        }
+      if (teams.length === 0) {
+        teamSection.innerHTML += '<p>Keine Teams vorhanden.</p>';
+      } else {
+        teams.forEach(team => {
+          const teamMembers = members
+            .filter(m => m.team_id === team.id)
+            .map(m => m.username)
+            .join(', ') || 'Noch keine Mitglieder';
 
-        content.appendChild(teamSection);
-      });
+          teamSection.innerHTML += `
+            <div class="card">
+              <h3>${team.name}</h3>
+              <p><strong>Mitglieder:</strong> ${teamMembers}</p>
+              <form action="/request-to-team" method="POST">
+                <input type="hidden" name="team_id" value="${team.id}">
+                <button type="submit">Anfrage senden</button>
+              </form>
+            </div>
+          `;
+        });
+      }
+
+      content.appendChild(teamSection);
+    });
 
     // ANFRAGEN LADEN
     fetch('/requests')
-      .then(res => {
-        if (res.redirected) {
-          window.location.href = res.url;
-          return [];
-        }
-        return res.json();
-      })
+      .then(res => res.json())
       .then(requests => {
         const requestSection = document.createElement('div');
         requestSection.innerHTML = '<h2>Meine Anfragen</h2>';
@@ -75,9 +70,9 @@
           requests.forEach(req => {
             requestSection.innerHTML += `
               <div class="card">
-                <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_email}</p>
+                <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
                 <p>Status: ${req.status}</p>
-                ${req.status === 'pending' && req.player_email ? `
+                ${req.status === 'pending' && req.player_username ? `
                   <form action="/handle-request" method="POST">
                     <input type="hidden" name="request_id" value="${req.id}">
                     <button type="submit" name="action" value="accept">Annehmen</button>
@@ -90,7 +85,38 @@
 
         content.appendChild(requestSection);
       });
+
+    // SPIELER IN TEAMS LADEN
+    fetch('/players-in-teams')
+      .then(res => res.json())
+      .then(players => {
+        const section = document.createElement('div');
+        section.innerHTML = '<h2>Spieler in Teams</h2>';
+        if (players.length === 0) {
+          section.innerHTML += '<p>Keine Spieler zugewiesen.</p>';
+        } else {
+          players.forEach(p => {
+            section.innerHTML += `<div class="card"><strong>${p.username}</strong> ist in <em>${p.team_name}</em></div>`;
+          });
+        }
+        content.appendChild(section);
+      });
+
+    // SPIELER OHNE TEAM LADEN
+    fetch('/players-without-team')
+      .then(res => res.json())
+      .then(players => {
+        const section = document.createElement('div');
+        section.innerHTML = '<h2>Spieler ohne Team</h2>';
+        if (players.length === 0) {
+          section.innerHTML += '<p>Alle Spieler sind bereits zugewiesen.</p>';
+        } else {
+          players.forEach(p => {
+            section.innerHTML += `<div class="card">${p.username}</div>`;
+          });
+        }
+        content.appendChild(section);
+      });
   </script>
 </body>
 </html>
-
