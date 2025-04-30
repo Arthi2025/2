@@ -8,7 +8,6 @@ const path = require('path');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'geheimnis123',
@@ -18,16 +17,16 @@ app.use(session({
 }));
 app.use(express.static('public'));
 
-// 👉 Route für Startseite
+// Route für Startseite
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// SQLite-Datenbank
+// Datenbank
 const dbPath = path.resolve(__dirname, 'database.db');
 const db = new sqlite3.Database(dbPath);
 
-// Tabellen erstellen
+// Tabellen anlegen
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +54,7 @@ app.post('/register', async (req, res) => {
   db.run(`INSERT INTO users (username, password, role) VALUES (?, ?, ?)`,
     [username, hashedPassword, role], err => {
       if (err) {
-        console.error('Fehler bei Registrierung:', err.message);
+        console.error('Registrierung fehlgeschlagen:', err.message);
         return res.send('Registrierung fehlgeschlagen');
       }
       res.redirect('/login.html');
@@ -81,18 +80,27 @@ app.get('/logout', (req, res) => {
   res.redirect('/login.html');
 });
 
-// Team erstellen
+// Team erstellen + Ersteller direkt als Mitglied eintragen
 app.post('/create-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { name } = req.body;
-  db.run(`INSERT INTO teams (name, creator_id) VALUES (?, ?)`,
-    [name, req.session.userId], err => {
-      if (err) return res.send('Fehler beim Team erstellen');
-      res.redirect('/dashboard.html');
-    });
+
+  db.run(`INSERT INTO teams (name, creator_id) VALUES (?, ?)`, [name, req.session.userId], function(err) {
+    if (err) return res.send('Fehler beim Team erstellen');
+
+    const teamId = this.lastID;
+
+    db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'accepted')`,
+      [req.session.userId, teamId],
+      err2 => {
+        if (err2) return res.send('Fehler beim Hinzufügen des Erstellers');
+        res.redirect('/dashboard.html');
+      }
+    );
+  });
 });
 
-// Teams abrufen
+// Alle Teams abrufen
 app.get('/teams', (req, res) => {
   db.all(`SELECT * FROM teams`, [], (err, teams) => {
     if (err) return res.send('Fehler beim Laden der Teams');
@@ -100,7 +108,7 @@ app.get('/teams', (req, res) => {
   });
 });
 
-// Anfrage an Team senden
+// Anfrage an ein Team stellen
 app.post('/request-to-team', (req, res) => {
   const { team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -111,12 +119,11 @@ app.post('/request-to-team', (req, res) => {
     });
 });
 
-// Anfragen anzeigen
+// Anfragen abrufen
 app.get('/requests', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
 
   if (req.session.role === 'creator') {
-    // Anfragen für Team-Ersteller
     db.all(`
       SELECT tr.id, u.username as player_username, t.name as team_name, tr.status
       FROM team_requests tr
@@ -127,9 +134,7 @@ app.get('/requests', (req, res) => {
       if (err) return res.send('Fehler');
       res.json(requests);
     });
-
   } else {
-    // Eigene Anfragen für Spieler
     db.all(`
       SELECT tr.id, t.name as team_name, tr.status
       FROM team_requests tr
@@ -142,21 +147,47 @@ app.get('/requests', (req, res) => {
   }
 });
 
-// Anfrage annehmen oder ablehnen
+// Anfrage akzeptieren oder ablehnen
 app.post('/handle-request', (req, res) => {
   const { request_id, action } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
   const newStatus = action === 'accept' ? 'accepted' : 'declined';
   db.run(`UPDATE team_requests SET status = ? WHERE id = ?`,
     [newStatus, request_id], err => {
-      if (err) return res.send('Fehler bei Update');
+      if (err) return res.send('Fehler beim Update');
       res.redirect('/dashboard.html');
     });
+});
+
+// Liste: Spieler, die einem Team zugewiesen sind
+app.get('/players-in-teams', (req, res) => {
+  db.all(`
+    SELECT u.username, t.name as team_name
+    FROM users u
+    JOIN team_requests tr ON u.id = tr.player_id
+    JOIN teams t ON tr.team_id = t.id
+    WHERE tr.status = 'accepted'
+  `, [], (err, rows) => {
+    if (err) return res.send('Fehler beim Abrufen');
+    res.json(rows);
+  });
+});
+
+// Liste: Spieler ohne Team
+app.get('/players-without-team', (req, res) => {
+  db.all(`
+    SELECT username FROM users
+    WHERE role = 'player' AND id NOT IN (
+      SELECT player_id FROM team_requests WHERE status = 'accepted'
+    )
+  `, [], (err, rows) => {
+    if (err) return res.send('Fehler beim Abrufen');
+    res.json(rows);
+  });
 });
 
 // Server starten
 app.listen(port, () => {
   console.log(`🚀 Server läuft auf Port ${port}`);
 });
-
 
