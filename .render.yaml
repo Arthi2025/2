@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: manki-dashboard
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free
+    branch: main
+    rootDir: .
+    envVars:
+      - key: SESSION_SECRET
+        value: geheimnis123
+      - key: NODE_ENV
+        value: production
