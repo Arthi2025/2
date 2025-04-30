@@ -17,22 +17,17 @@ app.use(session({
 }));
 app.use(express.static('public'));
 
-// Route für Startseite
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
 // Datenbank
 const dbPath = path.resolve(__dirname, 'database.db');
 const db = new sqlite3.Database(dbPath);
 
-// Tabellen anlegen
 db.serialize(() => {
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
     password TEXT,
-    role TEXT
+    role TEXT,
+    looking_for_team INTEGER DEFAULT 0
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS teams (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,10 +48,7 @@ app.post('/register', async (req, res) => {
   const hashedPassword = await bcrypt.hash(password, 10);
   db.run(`INSERT INTO users (username, password, role) VALUES (?, ?, ?)`,
     [username, hashedPassword, role], err => {
-      if (err) {
-        console.error('Registrierung fehlgeschlagen:', err.message);
-        return res.send('Registrierung fehlgeschlagen');
-      }
+      if (err) return res.send('Registrierung fehlgeschlagen');
       res.redirect('/login.html');
     });
 });
@@ -80,7 +72,7 @@ app.get('/logout', (req, res) => {
   res.redirect('/login.html');
 });
 
-// Team erstellen + Ersteller direkt als Mitglied eintragen
+// Team erstellen + automatisch zuweisen
 app.post('/create-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { name } = req.body;
@@ -89,33 +81,55 @@ app.post('/create-team', (req, res) => {
     if (err) return res.send('Fehler beim Team erstellen');
 
     const teamId = this.lastID;
-
     db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'accepted')`,
-      [req.session.userId, teamId],
-      err2 => {
-        if (err2) return res.send('Fehler beim Hinzufügen des Erstellers');
+      [req.session.userId, teamId], err2 => {
+        if (err2) return res.send('Fehler beim Zuweisen');
         res.redirect('/dashboard.html');
-      }
-    );
+      });
   });
 });
 
-// Alle Teams abrufen
+// Teams mit Mitgliederanzahl abrufen
 app.get('/teams', (req, res) => {
-  db.all(`SELECT * FROM teams`, [], (err, teams) => {
+  db.all(`
+    SELECT t.*, (
+      SELECT COUNT(*) FROM team_requests tr WHERE tr.team_id = t.id AND tr.status = 'accepted'
+    ) as member_count
+    FROM teams t
+  `, [], (err, teams) => {
     if (err) return res.send('Fehler beim Laden der Teams');
     res.json(teams);
   });
 });
 
-// Anfrage an ein Team stellen
+// Team-Mitglieder abrufen
+app.get('/team-members', (req, res) => {
+  db.all(`
+    SELECT tr.team_id, u.username
+    FROM team_requests tr
+    JOIN users u ON tr.player_id = u.id
+    WHERE tr.status = 'accepted'
+  `, [], (err, rows) => {
+    if (err) return res.send('Fehler');
+    res.json(rows);
+  });
+});
+
+// Anfrage senden (wenn < 5 Mitglieder)
 app.post('/request-to-team', (req, res) => {
   const { team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
-  db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'pending')`,
-    [req.session.userId, team_id], err => {
-      if (err) return res.send('Fehler bei Anfrage');
-      res.redirect('/dashboard.html');
+
+  db.get(`SELECT COUNT(*) as count FROM team_requests WHERE team_id = ? AND status = 'accepted'`,
+    [team_id], (err, row) => {
+      if (err) return res.send('Fehler');
+      if (row.count >= 5) return res.send('Team ist voll');
+
+      db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'pending')`,
+        [req.session.userId, team_id], err2 => {
+          if (err2) return res.send('Fehler bei Anfrage');
+          res.redirect('/dashboard.html');
+        });
     });
 });
 
@@ -130,9 +144,9 @@ app.get('/requests', (req, res) => {
       JOIN users u ON tr.player_id = u.id
       JOIN teams t ON tr.team_id = t.id
       WHERE t.creator_id = ?
-    `, [req.session.userId], (err, requests) => {
+    `, [req.session.userId], (err, rows) => {
       if (err) return res.send('Fehler');
-      res.json(requests);
+      res.json(rows);
     });
   } else {
     db.all(`
@@ -140,26 +154,26 @@ app.get('/requests', (req, res) => {
       FROM team_requests tr
       JOIN teams t ON tr.team_id = t.id
       WHERE tr.player_id = ?
-    `, [req.session.userId], (err, requests) => {
+    `, [req.session.userId], (err, rows) => {
       if (err) return res.send('Fehler');
-      res.json(requests);
+      res.json(rows);
     });
   }
 });
 
-// Anfrage akzeptieren oder ablehnen
+// Anfrage annehmen/ablehnen
 app.post('/handle-request', (req, res) => {
   const { request_id, action } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
   const newStatus = action === 'accept' ? 'accepted' : 'declined';
   db.run(`UPDATE team_requests SET status = ? WHERE id = ?`,
     [newStatus, request_id], err => {
-      if (err) return res.send('Fehler beim Update');
+      if (err) return res.send('Fehler bei Update');
       res.redirect('/dashboard.html');
     });
 });
 
-// Liste: Spieler, die einem Team zugewiesen sind
+// Spieler in Teams
 app.get('/players-in-teams', (req, res) => {
   db.all(`
     SELECT u.username, t.name as team_name
@@ -168,12 +182,12 @@ app.get('/players-in-teams', (req, res) => {
     JOIN teams t ON tr.team_id = t.id
     WHERE tr.status = 'accepted'
   `, [], (err, rows) => {
-    if (err) return res.send('Fehler beim Abrufen');
+    if (err) return res.send('Fehler');
     res.json(rows);
   });
 });
 
-// Liste: Spieler ohne Team
+// Spieler ohne Team
 app.get('/players-without-team', (req, res) => {
   db.all(`
     SELECT username FROM users
@@ -181,7 +195,26 @@ app.get('/players-without-team', (req, res) => {
       SELECT player_id FROM team_requests WHERE status = 'accepted'
     )
   `, [], (err, rows) => {
-    if (err) return res.send('Fehler beim Abrufen');
+    if (err) return res.send('Fehler');
+    res.json(rows);
+  });
+});
+
+// Spieler sucht Team setzen
+app.post('/set-looking', (req, res) => {
+  if (!req.session.userId) return res.redirect('/login.html');
+  const { status } = req.body;
+  db.run(`UPDATE users SET looking_for_team = ? WHERE id = ?`,
+    [status, req.session.userId], err => {
+      if (err) return res.send('Fehler beim Aktualisieren');
+      res.redirect('/dashboard.html');
+    });
+});
+
+// Spieler die ein Team suchen
+app.get('/players-looking', (req, res) => {
+  db.all(`SELECT username FROM users WHERE looking_for_team = 1`, [], (err, rows) => {
+    if (err) return res.send('Fehler');
     res.json(rows);
   });
 });
