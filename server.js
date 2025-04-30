@@ -8,6 +8,7 @@ const path = require('path');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
   secret: process.env.SESSION_SECRET || 'geheimnis123',
@@ -17,6 +18,12 @@ app.use(session({
 }));
 app.use(express.static('public'));
 
+// 👉 Fix: Route für /
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// SQLite-Datenbank
 const dbPath = path.resolve(__dirname, 'database.db');
 const db = new sqlite3.Database(dbPath);
 
@@ -41,7 +48,7 @@ db.serialize(() => {
   )`);
 });
 
-// Routen
+// Registrierung
 app.post('/register', async (req, res) => {
   const { email, password, role } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -52,6 +59,7 @@ app.post('/register', async (req, res) => {
     });
 });
 
+// Login
 app.post('/login', (req, res) => {
   const { email, password } = req.body;
   db.get(`SELECT * FROM users WHERE email = ?`, [email], async (err, user) => {
@@ -64,20 +72,24 @@ app.post('/login', (req, res) => {
   });
 });
 
+// Logout
 app.get('/logout', (req, res) => {
   req.session.destroy();
   res.redirect('/login.html');
 });
 
+// Team erstellen
 app.post('/create-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { name } = req.body;
-  db.run(`INSERT INTO teams (name, creator_id) VALUES (?, ?)`, [name, req.session.userId], err => {
-    if (err) return res.send('Fehler beim Team erstellen');
-    res.redirect('/dashboard.html');
-  });
+  db.run(`INSERT INTO teams (name, creator_id) VALUES (?, ?)`,
+    [name, req.session.userId], err => {
+      if (err) return res.send('Fehler beim Team erstellen');
+      res.redirect('/dashboard.html');
+    });
 });
 
+// Teams abrufen
 app.get('/teams', (req, res) => {
   db.all(`SELECT * FROM teams`, [], (err, teams) => {
     if (err) return res.send('Fehler beim Laden der Teams');
@@ -85,6 +97,7 @@ app.get('/teams', (req, res) => {
   });
 });
 
+// Anfrage an Team senden
 app.post('/request-to-team', (req, res) => {
   const { team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -95,6 +108,7 @@ app.post('/request-to-team', (req, res) => {
     });
 });
 
+// Anfragen abrufen
 app.get('/requests', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   if (req.session.role === 'creator') {
@@ -121,18 +135,22 @@ app.get('/requests', (req, res) => {
   }
 });
 
+// Anfrage annehmen oder ablehnen
 app.post('/handle-request', (req, res) => {
   const { request_id, action } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
   const newStatus = action === 'accept' ? 'accepted' : 'declined';
-  db.run(`UPDATE team_requests SET status = ? WHERE id = ?`, [newStatus, request_id], err => {
-    if (err) return res.send('Fehler bei Update');
-    res.redirect('/dashboard.html');
-  });
+  db.run(`UPDATE team_requests SET status = ? WHERE id = ?`,
+    [newStatus, request_id], err => {
+      if (err) return res.send('Fehler bei Update');
+      res.redirect('/dashboard.html');
+    });
 });
 
+// Server starten
 app.listen(port, () => {
   console.log(`🚀 Server läuft auf Port ${port}`);
 });
+
 
 
