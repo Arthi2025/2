@@ -135,7 +135,4 @@ app.listen(port, () => {
   console.log(`🚀 Server läuft auf Port ${port}`);
 });
 
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
 
