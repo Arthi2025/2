@@ -30,51 +30,84 @@
 
   <script>
     const content = document.getElementById('dashboard-content');
+    let currentUserId = null;
 
-    // Teams laden
-    fetch('/teams')
+    fetch('/my-id')
       .then(res => res.json())
-      .then(teams => {
-        const teamSection = document.createElement('div');
-        teamSection.innerHTML = '<h2>Teamsuche</h2>';
-        teams.forEach(team => {
-          teamSection.innerHTML += `
-            <div class="card">
-              <h3>${team.name} (${team.member_count}/5)</h3>
-              ${team.member_count < 5 ? `
-              <form action="/request-to-team" method="POST">
-                <input type="hidden" name="team_id" value="${team.id}">
-                <button type="submit">Anfrage senden</button>
-              </form>` : '<p>Team ist voll</p>'}
-            </div>
-          `;
-        });
-        content.appendChild(teamSection);
+      .then(data => {
+        currentUserId = data.id;
+        loadDashboard();
       });
 
-    // Anfragen laden
-    fetch('/requests')
-      .then(res => res.json())
-      .then(requests => {
-        const requestSection = document.createElement('div');
-        requestSection.innerHTML = '<h2>Meine Anfragen</h2>';
-        requests.forEach(req => {
-          requestSection.innerHTML += `
-            <div class="card">
-              <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
-              <p>Status: ${req.status}</p>
-              ${req.status === 'pending' && req.player_username ? `
-                <form action="/handle-request" method="POST">
-                  <input type="hidden" name="request_id" value="${req.id}">
-                  <button type="submit" name="action" value="accept">Annehmen</button>
-                  <button type="submit" name="action" value="decline">Ablehnen</button>
-                </form>` : ''}
-            </div>
-          `;
+    function loadDashboard() {
+      fetch('/teams')
+        .then(res => res.json())
+        .then(teams => {
+          const teamSection = document.createElement('div');
+          teamSection.innerHTML = '<h2>Teamsuche</h2>';
+          teams.forEach(team => {
+            teamSection.innerHTML += `
+              <div class="card">
+                <h3>${team.name} (${team.member_count}/5)</h3>
+                ${team.member_count < 5 ? `
+                <form action="/request-to-team" method="POST">
+                  <input type="hidden" name="team_id" value="${team.id}">
+                  <button type="submit">Anfrage senden</button>
+                </form>` : '<p>Team ist voll</p>'}
+              </div>
+            `;
+          });
+          content.appendChild(teamSection);
         });
-        content.appendChild(requestSection);
-      });
+
+      fetch('/requests')
+        .then(res => res.json())
+        .then(requests => {
+          const requestSection = document.createElement('div');
+          requestSection.innerHTML = '<h2>Meine Anfragen</h2>';
+          requests.forEach(req => {
+            requestSection.innerHTML += `
+              <div class="card">
+                <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
+                <p>Status: ${req.status}</p>
+                ${req.status === 'pending' && req.player_username ? `
+                  <form action="/handle-request" method="POST">
+                    <input type="hidden" name="request_id" value="${req.id}">
+                    <button type="submit" name="action" value="accept">Annehmen</button>
+                    <button type="submit" name="action" value="decline">Ablehnen</button>
+                  </form>` : ''}
+              </div>
+            `;
+          });
+          content.appendChild(requestSection);
+        });
+
+      fetch('/players-looking-detailed')
+        .then(res => res.json())
+        .then(players => {
+          fetch('/teams')
+            .then(res => res.json())
+            .then(teams => {
+              const myTeam = teams.find(t => t.creator_id === currentUserId);
+              const searchSection = document.createElement('div');
+              searchSection.innerHTML = '<h2>Spieler suchen ein Team</h2>';
+              players.forEach(p => {
+                searchSection.innerHTML += `
+                  <div class="card">
+                    <p>${p.username}</p>
+                    ${myTeam ? `
+                    <form action="/invite-player" method="POST">
+                      <input type="hidden" name="team_id" value="${myTeam.id}">
+                      <input type="hidden" name="player_id" value="${p.id}">
+                      <button type="submit">Einladen</button>
+                    </form>` : ''}
+                  </div>
+                `;
+              });
+              content.appendChild(searchSection);
+            });
+        });
+    }
   </script>
 </body>
 </html>
-
