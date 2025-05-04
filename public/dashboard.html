@@ -40,6 +40,7 @@
       });
 
     function loadDashboard() {
+      // Teams anzeigen
       fetch('/teams')
         .then(res => res.json())
         .then(teams => {
@@ -60,6 +61,7 @@
           content.appendChild(teamSection);
         });
 
+      // Anfragen anzeigen
       fetch('/requests')
         .then(res => res.json())
         .then(requests => {
@@ -70,18 +72,13 @@
               <div class="card">
                 <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
                 <p>Status: ${req.status}</p>
-                ${req.status === 'pending' && req.player_username ? `
-                  <form action="/handle-request" method="POST">
-                    <input type="hidden" name="request_id" value="${req.id}">
-                    <button type="submit" name="action" value="accept">Annehmen</button>
-                    <button type="submit" name="action" value="decline">Ablehnen</button>
-                  </form>` : ''}
               </div>
             `;
           });
           content.appendChild(requestSection);
         });
 
+      // Spieler die ein Team suchen anzeigen
       fetch('/players-looking-detailed')
         .then(res => res.json())
         .then(players => {
@@ -89,10 +86,10 @@
             .then(res => res.json())
             .then(teams => {
               const myTeam = teams.find(t => t.creator_id === currentUserId);
-              const searchSection = document.createElement('div');
-              searchSection.innerHTML = '<h2>Spieler suchen ein Team</h2>';
+              const playerSection = document.createElement('div');
+              playerSection.innerHTML = '<h2>Spieler suchen ein Team</h2>';
               players.forEach(p => {
-                searchSection.innerHTML += `
+                playerSection.innerHTML += `
                   <div class="card">
                     <p>${p.username}</p>
                     ${myTeam ? `
@@ -104,8 +101,32 @@
                   </div>
                 `;
               });
-              content.appendChild(searchSection);
+              content.appendChild(playerSection);
             });
+        });
+
+      // Einladungen anzeigen
+      fetch('/my-invitations')
+        .then(res => res.json())
+        .then(invitations => {
+          if (invitations.length > 0) {
+            const invitationSection = document.createElement('div');
+            invitationSection.innerHTML = '<h2>Einladungen</h2>';
+            invitations.forEach(inv => {
+              invitationSection.innerHTML += `
+                <div class="card">
+                  <p>Team: ${inv.team_name}</p>
+                  <form action="/handle-invitation" method="POST">
+                    <input type="hidden" name="invitation_id" value="${inv.id}">
+                    <input type="hidden" name="team_id" value="${inv.team_id}">
+                    <button type="submit" name="action" value="accept">Annehmen</button>
+                    <button type="submit" name="action" value="decline">Ablehnen</button>
+                  </form>
+                </div>
+              `;
+            });
+            content.appendChild(invitationSection);
+          }
         });
     }
   </script>
