@@ -5,65 +5,41 @@
   <title>Dashboard</title>
   <link rel="stylesheet" href="css/style.css">
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f4f4f4;
-      padding: 20px;
-      color: #333;
-    }
-    h1, h2 {
-      color: #2c3e50;
-    }
     .section {
-      background: white;
-      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.15);
       padding: 20px;
-      margin: 20px auto;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      border-radius: 12px;
       max-width: 800px;
+      margin: 30px auto;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
-    .card {
-      background: #ecf0f1;
-      padding: 15px;
-      border-radius: 8px;
+
+    .section h2 {
+      color: #fff;
       margin-bottom: 10px;
-      text-align: left;
     }
-    button {
-      padding: 8px 15px;
-      border: none;
-      border-radius: 5px;
-      background-color: #2980b9;
-      color: white;
-      cursor: pointer;
-      margin-top: 5px;
+
+    .card {
+      background: rgba(255, 255, 255, 0.2);
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 10px;
+      color: #fff;
     }
-    button:hover {
-      background-color: #3498db;
-    }
-    input, select {
-      padding: 7px;
-      border: 1px solid #ccc;
-      border-radius: 5px;
-      margin: 5px 0;
-    }
+
     form {
       margin-top: 10px;
     }
-    a {
-      display: inline-block;
-      margin: 10px 0;
-      color: #2980b9;
-      text-decoration: none;
-    }
-    a:hover {
-      text-decoration: underline;
+
+    select {
+      width: 100%;
+      max-width: 300px;
     }
   </style>
 </head>
 <body>
 
-  <h1>Willkommen im Team-Dashboard</h1>
+  <h1>Dashboard</h1>
   <a href="/logout">Logout</a>
 
   <div id="dashboard-content"></div>
@@ -73,13 +49,14 @@
     let userId = null;
     let teams = [];
 
-    // Nutzer-ID aus Anfragen ableiten
+    // Nutzer-ID ermitteln
     fetch('/requests').then(res => res.json()).then(reqs => {
       if (reqs.length > 0) {
         userId = reqs.find(r => r.creator_id)?.creator_id || reqs[0].creator_id;
       }
     });
 
+    // Alle Daten laden
     Promise.all([
       fetch('/teams').then(r => r.json()),
       fetch('/team-members').then(r => r.json()),
@@ -92,9 +69,9 @@
       const createTeam = document.createElement('div');
       createTeam.className = 'section';
       createTeam.innerHTML = `
-        <h2>🎯 Team erstellen</h2>
+        <h2>🛠 Team erstellen</h2>
         <form action="/create-team" method="POST">
-          <input type="text" name="name" placeholder="Teamname" required>
+          <input name="name" type="text" placeholder="Teamname" required>
           <button type="submit">Erstellen</button>
         </form>
       `;
@@ -104,7 +81,7 @@
       const lookingStatus = document.createElement('div');
       lookingStatus.className = 'section';
       lookingStatus.innerHTML = `
-        <h2>🔍 Team suchen</h2>
+        <h2>🔍 Suchstatus</h2>
         <form action="/set-looking" method="POST">
           <button type="submit" name="status" value="1">Ich suche ein Team</button>
           <button type="submit" name="status" value="0">Nicht mehr suchend</button>
@@ -112,14 +89,14 @@
       `;
       content.appendChild(lookingStatus);
 
-      // === Teams anzeigen ===
+      // === Teams ===
       const teamList = document.createElement('div');
       teamList.className = 'section';
       teamList.innerHTML = '<h2>📋 Alle Teams</h2>';
 
       teams.forEach(team => {
         const teamMembers = members.filter(m => m.team_id === team.id);
-        const memberNames = teamMembers.map(m => m.username).join(', ') || 'Keine Mitglieder';
+        const memberNames = teamMembers.map(m => m.username).join(', ') || 'Noch keine Mitglieder';
         const isErsteller = team.creator_id === userId;
         const istVoll = team.member_count >= 5;
         const binMitglied = teamMembers.some(m => m.user_id === userId);
@@ -180,19 +157,18 @@
 
       content.appendChild(requestSection);
 
-      // === Spieler in Teams anzeigen + Team verlassen ===
+      // === Spieler in Teams ===
       const playerSection = document.createElement('div');
       playerSection.className = 'section';
-      playerSection.innerHTML = '<h2>👥 Spieler & Teams</h2>';
+      playerSection.innerHTML = '<h2>👥 Spieler in Teams</h2>';
 
       playersInTeams.forEach(p => {
         playerSection.innerHTML += `
           <div class="card">
             ${p.username} ist in <strong>${p.team_name}</strong>
-            ${p.username === "${req.session?.username}" ? `
-              <form action="/leave-team" method="POST">
-                <button type="submit">Team verlassen</button>
-              </form>` : ''}
+            <form action="/leave-team" method="POST">
+              <button type="submit">Team verlassen</button>
+            </form>
           </div>`;
       });
 
@@ -230,3 +206,4 @@
   </script>
 </body>
 </html>
+
