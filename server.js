@@ -1,3 +1,6 @@
+// ============================
+// 📁 server.js (komplett)
+// ============================
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
@@ -10,14 +13,13 @@ const port = process.env.PORT || 3000;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'geheimnis123',
+  secret: 'geheimnis123',
   resave: false,
   saveUninitialized: false,
   cookie: { secure: false, sameSite: 'lax' }
 }));
 app.use(express.static('public'));
 
-// Datenbank
 const db = new sqlite3.Database(path.resolve(__dirname, 'database.db'));
 
 db.serialize(() => {
@@ -90,12 +92,10 @@ app.get('/logout', (req, res) => {
 app.post('/create-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { name } = req.body;
-
   db.run(`INSERT INTO teams (name, creator_id) VALUES (?, ?)`,
     [name, req.session.userId],
     function (err) {
       if (err) return res.send('Fehler beim Team erstellen');
-
       const teamId = this.lastID;
       db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'accepted')`,
         [req.session.userId, teamId], err2 => {
@@ -108,7 +108,6 @@ app.post('/create-team', (req, res) => {
 // Team verlassen
 app.post('/leave-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
-
   db.run(`DELETE FROM team_requests WHERE player_id = ? AND status = 'accepted'`,
     [req.session.userId], err => {
       if (err) return res.send('Fehler beim Verlassen des Teams');
@@ -116,7 +115,7 @@ app.post('/leave-team', (req, res) => {
     });
 });
 
-// Spieler entfernen (nur durch Team-Ersteller)
+// Spieler entfernen (nur Ersteller)
 app.post('/remove-player', (req, res) => {
   const { player_id, team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -158,7 +157,7 @@ app.get('/team-members', (req, res) => {
   });
 });
 
-// Team-Anfrage stellen (nur wenn nicht schon in einem Team)
+// Anfrage an Team senden
 app.post('/request-to-team', (req, res) => {
   const { team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -182,7 +181,7 @@ app.post('/request-to-team', (req, res) => {
     });
 });
 
-// Anfragen anzeigen (alle Anfragen von und an den User)
+// Anfragen anzeigen
 app.get('/requests', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
 
@@ -209,7 +208,7 @@ app.post('/handle-request', (req, res) => {
   });
 });
 
-// Spieler die einem Team zugewiesen sind
+// Spieler in Teams
 app.get('/players-in-teams', (req, res) => {
   db.all(`
     SELECT u.username, t.name as team_name
@@ -223,45 +222,21 @@ app.get('/players-in-teams', (req, res) => {
   });
 });
 
-// Spieler ohne Team
-app.get('/players-without-team', (req, res) => {
-  db.all(`
-    SELECT username FROM users
-    WHERE id NOT IN (
-      SELECT player_id FROM team_requests WHERE status = 'accepted'
-    )
-  `, [], (err, rows) => {
-    if (err) return res.send('Fehler');
-    res.json(rows);
-  });
-});
-
-// Spieler sucht Team setzen
-app.post('/set-looking', (req, res) => {
-  const { status } = req.body;
-  if (!req.session.userId) return res.redirect('/login.html');
-
-  db.run(`UPDATE users SET looking_for_team = ? WHERE id = ?`,
-    [status, req.session.userId], err => {
-      if (err) return res.send('Fehler beim Status-Update');
-      res.redirect('/dashboard.html');
-    });
-});
-
-// Spieler sucht Team (mit ID für Einladen)
+// Suchende Spieler (nicht in Team)
 app.get('/players-looking-detailed', (req, res) => {
   db.all(`
     SELECT u.id, u.username FROM users u
-    WHERE u.looking_for_team = 1 AND u.id NOT IN (
-      SELECT player_id FROM team_requests WHERE status = 'accepted'
-    )
+    WHERE u.looking_for_team = 1
+      AND u.id NOT IN (
+        SELECT player_id FROM team_requests WHERE status = 'accepted'
+      )
   `, [], (err, rows) => {
     if (err) return res.send('Fehler');
     res.json(rows);
   });
 });
 
-// Einladung senden (nur durch Team-Ersteller)
+// Einladung senden (nur Ersteller)
 app.post('/invite-player', (req, res) => {
   const { player_id, team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -277,7 +252,50 @@ app.post('/invite-player', (req, res) => {
     });
 });
 
-// Server starten
+// Einladungen anzeigen
+app.get('/my-invitations', (req, res) => {
+  if (!req.session.userId) return res.redirect('/login.html');
+
+  db.all(`
+    SELECT i.id, t.name AS team_name
+    FROM team_invitations i
+    JOIN teams t ON i.team_id = t.id
+    WHERE i.player_id = ? AND i.status = 'pending'
+  `, [req.session.userId], (err, rows) => {
+    if (err) return res.send('Fehler beim Abrufen von Einladungen');
+    res.json(rows);
+  });
+});
+
+// Einladung annehmen/ablehnen
+app.post('/handle-invitation', (req, res) => {
+  const { invitation_id, action } = req.body;
+  if (!req.session.userId) return res.redirect('/login.html');
+
+  db.get(`
+    SELECT * FROM team_invitations WHERE id = ? AND player_id = ?
+  `, [invitation_id, req.session.userId], (err, invitation) => {
+    if (err || !invitation) return res.send('Einladung nicht gefunden');
+
+    if (action === 'accept') {
+      db.serialize(() => {
+        db.run(`UPDATE team_invitations SET status = 'accepted' WHERE id = ?`, [invitation_id]);
+        db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'accepted')`,
+          [req.session.userId, invitation.team_id]);
+        db.run(`UPDATE users SET looking_for_team = 0 WHERE id = ?`, [req.session.userId]);
+        res.redirect('/dashboard.html');
+      });
+    } else if (action === 'decline') {
+      db.run(`UPDATE team_invitations SET status = 'declined' WHERE id = ?`, [invitation_id], err2 => {
+        if (err2) return res.send('Fehler beim Ablehnen');
+        res.redirect('/dashboard.html');
+      });
+    } else {
+      res.send('Ungültige Aktion');
+    }
+  });
+});
+
 app.listen(port, () => {
   console.log(`🚀 Server läuft auf http://localhost:${port}`);
 });
