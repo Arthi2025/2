@@ -4,211 +4,77 @@
   <meta charset="UTF-8">
   <title>Dashboard</title>
   <link rel="stylesheet" href="css/style.css">
-  <style>
-    .section {
-      background: rgba(255, 255, 255, 0.15);
-      padding: 20px;
-      border-radius: 12px;
-      max-width: 800px;
-      margin: 30px auto;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-    }
-    .section h2 {
-      color: #fff;
-      margin-bottom: 10px;
-    }
-    .card {
-      background: rgba(255, 255, 255, 0.2);
-      padding: 15px;
-      margin: 15px 0;
-      border-radius: 10px;
-      color: #fff;
-    }
-    form {
-      margin-top: 10px;
-    }
-    select {
-      width: 100%;
-      max-width: 300px;
-    }
-  </style>
 </head>
 <body>
   <h1>Dashboard</h1>
   <a href="/logout">Logout</a>
+
+  <div class="flex-row">
+    <form action="/create-team" method="POST" class="form-box">
+      <h2>Team erstellen</h2>
+      <input name="name" type="text" placeholder="Teamname" required>
+      <button type="submit">Erstellen</button>
+    </form>
+
+    <form action="/set-looking" method="POST" class="form-box">
+      <h2>Suchstatus</h2>
+      <select name="status">
+        <option value="1">Ich suche ein Team</option>
+        <option value="0">Ich suche nicht</option>
+      </select>
+      <button type="submit">Speichern</button>
+    </form>
+  </div>
+
   <div id="dashboard-content"></div>
 
   <script>
     const content = document.getElementById('dashboard-content');
-    let userId = null;
-    let teams = [];
 
+    // Teams laden
+    fetch('/teams')
+      .then(res => res.json())
+      .then(teams => {
+        const teamSection = document.createElement('div');
+        teamSection.innerHTML = '<h2>Teamsuche</h2>';
+        teams.forEach(team => {
+          teamSection.innerHTML += `
+            <div class="card">
+              <h3>${team.name} (${team.member_count}/5)</h3>
+              ${team.member_count < 5 ? `
+              <form action="/request-to-team" method="POST">
+                <input type="hidden" name="team_id" value="${team.id}">
+                <button type="submit">Anfrage senden</button>
+              </form>` : '<p>Team ist voll</p>'}
+            </div>
+          `;
+        });
+        content.appendChild(teamSection);
+      });
+
+    // Anfragen laden
     fetch('/requests')
       .then(res => res.json())
-      .then(reqs => {
-        if (reqs.length > 0) {
-          userId = reqs.find(r => r.creator_id)?.creator_id || reqs[0].creator_id;
-        }
-      });
-
-    Promise.all([
-      fetch('/teams').then(r => r.json()),
-      fetch('/team-members').then(r => r.json()),
-      fetch('/requests').then(r => r.json()),
-      fetch('/players-in-teams').then(r => r.json())
-    ]).then(([loadedTeams, members, requests, playersInTeams]) => {
-      teams = loadedTeams;
-
-      const createTeam = document.createElement('div');
-      createTeam.className = 'section';
-      createTeam.innerHTML = `
-        <h2>🛠 Team erstellen</h2>
-        <form action="/create-team" method="POST">
-          <input name="name" type="text" placeholder="Teamname" required>
-          <button type="submit">Erstellen</button>
-        </form>
-      `;
-      content.appendChild(createTeam);
-
-      const lookingStatus = document.createElement('div');
-      lookingStatus.className = 'section';
-      lookingStatus.innerHTML = `
-        <h2>🔍 Suchstatus</h2>
-        <form action="/set-looking" method="POST">
-          <button type="submit" name="status" value="1">Ich suche ein Team</button>
-          <button type="submit" name="status" value="0">Nicht mehr suchend</button>
-        </form>
-      `;
-      content.appendChild(lookingStatus);
-
-      const teamList = document.createElement('div');
-      teamList.className = 'section';
-      teamList.innerHTML = '<h2>📋 Alle Teams</h2>';
-
-      teams.forEach(team => {
-        const teamMembers = members.filter(m => m.team_id === team.id);
-        const memberNames = teamMembers.map(m => m.username).join(', ') || 'Noch keine Mitglieder';
-        const isErsteller = team.creator_id === userId;
-        const istVoll = team.member_count >= 5;
-        const binMitglied = teamMembers.some(m => m.user_id === userId);
-
-        let card = `<div class="card"><h3>${team.name}</h3><p><strong>Mitglieder:</strong> ${memberNames}</p>`;
-
-        if (!binMitglied && !istVoll) {
-          card += `
-            <form action="/request-to-team" method="POST">
-              <input type="hidden" name="team_id" value="${team.id}">
-              <button type="submit">Anfrage senden</button>
-            </form>`;
-        } else if (istVoll) {
-          card += `<p><em>Team ist voll</em></p>`;
-        }
-
-        if (isErsteller) {
-          teamMembers.forEach(member => {
-            if (member.user_id !== userId) {
-              card += `
-                <form action="/remove-player" method="POST">
-                  <input type="hidden" name="player_id" value="${member.user_id}">
-                  <input type="hidden" name="team_id" value="${team.id}">
-                  <button type="submit">❌ ${member.username} entfernen</button>
-                </form>`;
-            }
-          });
-        }
-
-        card += '</div>';
-        teamList.innerHTML += card;
-      });
-
-      content.appendChild(teamList);
-
-      const requestSection = document.createElement('div');
-      requestSection.className = 'section';
-      requestSection.innerHTML = '<h2>📨 Meine Anfragen</h2>';
-
-      requests.forEach(req => {
-        requestSection.innerHTML += `
-          <div class="card">
-            <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
-            <p>Status: ${req.status}</p>
-            ${req.status === 'pending' && req.player_username ? `
-              <form action="/handle-request" method="POST">
-                <input type="hidden" name="request_id" value="${req.id}">
-                <button type="submit" name="action" value="accept">✅ Annehmen</button>
-                <button type="submit" name="action" value="decline">❌ Ablehnen</button>
-              </form>` : ''}
-          </div>`;
-      });
-
-      content.appendChild(requestSection);
-
-      const playerSection = document.createElement('div');
-      playerSection.className = 'section';
-      playerSection.innerHTML = '<h2>👥 Spieler in Teams</h2>';
-
-      playersInTeams.forEach(p => {
-        playerSection.innerHTML += `
-          <div class="card">
-            ${p.username} ist in <strong>${p.team_name}</strong>
-            <form action="/leave-team" method="POST">
-              <button type="submit">Team verlassen</button>
-            </form>
-          </div>`;
-      });
-
-      content.appendChild(playerSection);
-
-      fetch('/players-looking-detailed')
-        .then(res => res.json())
-        .then(players => {
-          const ownTeams = teams.filter(t => t.creator_id === userId);
-          if (players.length === 0 || ownTeams.length === 0) return;
-
-          const inviteSection = document.createElement('div');
-          inviteSection.className = 'section';
-          inviteSection.innerHTML = '<h2>📩 Spieler suchen ein Team (Einladen)</h2>';
-
-          players.forEach(p => {
-            inviteSection.innerHTML += `
-              <div class="card">
-                ${p.username}
-                <form action="/invite-player" method="POST">
-                  <input type="hidden" name="player_id" value="${p.id}">
-                  <select name="team_id">
-                    ${ownTeams.map(t => `<option value="${t.id}">${t.name}</option>`).join('')}
-                  </select>
-                  <button type="submit">Einladen</button>
-                </form>
-              </div>`;
-          });
-
-          content.appendChild(inviteSection);
+      .then(requests => {
+        const requestSection = document.createElement('div');
+        requestSection.innerHTML = '<h2>Meine Anfragen</h2>';
+        requests.forEach(req => {
+          requestSection.innerHTML += `
+            <div class="card">
+              <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
+              <p>Status: ${req.status}</p>
+              ${req.status === 'pending' && req.player_username ? `
+                <form action="/handle-request" method="POST">
+                  <input type="hidden" name="request_id" value="${req.id}">
+                  <button type="submit" name="action" value="accept">Annehmen</button>
+                  <button type="submit" name="action" value="decline">Ablehnen</button>
+                </form>` : ''}
+            </div>
+          `;
         });
-
-      fetch('/my-invitations')
-        .then(res => res.json())
-        .then(invitations => {
-          if (invitations.length === 0) return;
-          const section = document.createElement('div');
-          section.className = 'section';
-          section.innerHTML = '<h2>📬 Meine Einladungen</h2>';
-
-          invitations.forEach(inv => {
-            section.innerHTML += `
-              <div class="card">
-                <p>Einladung von Team: <strong>${inv.team_name}</strong></p>
-                <form action="/handle-invitation" method="POST">
-                  <input type="hidden" name="invitation_id" value="${inv.id}">
-                  <button type="submit" name="action" value="accept">✅ Annehmen</button>
-                  <button type="submit" name="action" value="decline">❌ Ablehnen</button>
-                </form>
-              </div>`;
-          });
-
-          content.appendChild(section);
-        });
-    });
+        content.appendChild(requestSection);
+      });
   </script>
 </body>
 </html>
+
