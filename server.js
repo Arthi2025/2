@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
@@ -48,7 +49,6 @@ db.serialize(() => {
   )`);
 });
 
-// Registrierung
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -63,7 +63,6 @@ app.post('/register', async (req, res) => {
   });
 });
 
-// Login
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
   db.get(`SELECT * FROM users WHERE username = ?`, [username], async (err, user) => {
@@ -81,13 +80,11 @@ app.get('/logout', (req, res) => {
   res.redirect('/login.html');
 });
 
-// Aktuelle Benutzer-ID abrufen
 app.get('/my-id', (req, res) => {
   if (!req.session.userId) return res.status(401).send('Nicht eingeloggt');
   res.json({ id: req.session.userId });
 });
 
-// Team erstellen
 app.post('/create-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { name } = req.body;
@@ -101,7 +98,6 @@ app.post('/create-team', (req, res) => {
   });
 });
 
-// Suchstatus setzen
 app.post('/set-looking', (req, res) => {
   const { status } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -112,7 +108,6 @@ app.post('/set-looking', (req, res) => {
   });
 });
 
-// Alle Teams abrufen
 app.get('/teams', (req, res) => {
   db.all(`SELECT t.*, (SELECT COUNT(*) FROM team_requests tr WHERE tr.team_id = t.id AND tr.status = 'accepted') as member_count FROM teams t`, [], (err, teams) => {
     if (err) return res.send('Fehler beim Laden der Teams');
@@ -120,7 +115,6 @@ app.get('/teams', (req, res) => {
   });
 });
 
-// Anfragen abrufen
 app.get('/requests', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   db.all(`SELECT tr.id, u.username as player_username, t.name as team_name, t.creator_id, tr.status FROM team_requests tr JOIN users u ON tr.player_id = u.id JOIN teams t ON tr.team_id = t.id WHERE t.creator_id = ? OR tr.player_id = ?`, [req.session.userId, req.session.userId], (err, rows) => {
@@ -129,7 +123,6 @@ app.get('/requests', (req, res) => {
   });
 });
 
-// Spieler, die ein Team suchen
 app.get('/players-looking-detailed', (req, res) => {
   db.all(`SELECT u.id, u.username FROM users u WHERE u.looking_for_team = 1 AND u.id NOT IN (SELECT player_id FROM team_requests WHERE status = 'accepted')`, [], (err, rows) => {
     if (err) return res.send('Fehler');
@@ -137,7 +130,6 @@ app.get('/players-looking-detailed', (req, res) => {
   });
 });
 
-// Einladung senden (nur Team-Leader)
 app.post('/invite-player', (req, res) => {
   const { player_id, team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -150,7 +142,36 @@ app.post('/invite-player', (req, res) => {
   });
 });
 
-// Server starten
+app.get('/my-invitations', (req, res) => {
+  if (!req.session.userId) return res.redirect('/login.html');
+  db.all(`
+    SELECT i.id, t.name AS team_name, i.team_id
+    FROM team_invitations i
+    JOIN teams t ON i.team_id = t.id
+    WHERE i.player_id = ? AND i.status = 'pending'
+  `, [req.session.userId], (err, rows) => {
+    if (err) return res.send('Fehler beim Abrufen von Einladungen');
+    res.json(rows);
+  });
+});
+
+app.post('/handle-invitation', (req, res) => {
+  const { invitation_id, action, team_id } = req.body;
+  if (!req.session.userId) return res.redirect('/login.html');
+
+  if (action === 'accept') {
+    db.serialize(() => {
+      db.run(`UPDATE team_invitations SET status = 'accepted' WHERE id = ?`, [invitation_id]);
+      db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'accepted')`, [req.session.userId, team_id]);
+      db.run(`UPDATE users SET looking_for_team = 0 WHERE id = ?`, [req.session.userId]);
+    });
+  } else if (action === 'decline') {
+    db.run(`UPDATE team_invitations SET status = 'declined' WHERE id = ?`, [invitation_id]);
+  }
+
+  res.redirect('/dashboard.html');
+});
+
 app.listen(port, () => {
   console.log(`🚀 Server läuft auf http://localhost:${port}`);
 });
