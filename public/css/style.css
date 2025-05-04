@@ -26,10 +26,7 @@ button:hover {
 }
 
 form {
-  background: rgba(255, 255, 255, 0.1);
-  padding: 20px;
   margin: 20px auto;
-  border-radius: 10px;
   width: 300px;
 }
 
@@ -51,3 +48,17 @@ a:hover {
   width: 400px;
 }
 
+.flex-row {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.form-box {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 20px;
+  border-radius: 10px;
+  width: 300px;
+}
