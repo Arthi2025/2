@@ -25,7 +25,8 @@ db.serialize(() => {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
     password TEXT,
-    looking_for_team INTEGER DEFAULT 0
+    looking_for_team INTEGER DEFAULT 0,
+    is_admin INTEGER DEFAULT 0
   )`);
 
   db.run(`CREATE TABLE IF NOT EXISTS teams (
@@ -47,8 +48,15 @@ db.serialize(() => {
     player_id INTEGER,
     status TEXT
   )`);
-});
 
+  // Admin-Benutzer anlegen (einmalig)
+  db.get(`SELECT * FROM users WHERE username = 'Admin'`, async (err, user) => {
+    if (!user) {
+      const hashed = await bcrypt.hash('Admin2025!', 10);
+      db.run(`INSERT INTO users (username, password, is_admin) VALUES (?, ?, 1)`, ['Admin', hashed]);
+    }
+  });
+});
 // Registrierung
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
@@ -73,6 +81,7 @@ app.post('/login', (req, res) => {
     }
     req.session.userId = user.id;
     req.session.username = user.username;
+    req.session.isAdmin = user.is_admin === 1;
     res.redirect('/dashboard.html');
   });
 });
@@ -105,40 +114,6 @@ app.post('/create-team', (req, res) => {
   });
 });
 
-// Suchstatus setzen
-app.post('/set-looking', (req, res) => {
-  const { status } = req.body;
-  const looking = status === '1' ? 1 : 0;
-  db.run(`UPDATE users SET looking_for_team = ? WHERE id = ?`, [looking, req.session.userId], err => {
-    if (err) return res.send('Fehler beim Speichern des Suchstatus');
-    res.redirect('/dashboard.html');
-  });
-});
-
-// Teams anzeigen
-app.get('/teams', (req, res) => {
-  db.all(`
-    SELECT t.*, (SELECT COUNT(*) FROM team_requests WHERE team_id = t.id AND status = 'accepted') as member_count
-    FROM teams t
-  `, [], (err, teams) => {
-    if (err) return res.send('Fehler beim Laden der Teams');
-    res.json(teams);
-  });
-});
-
-// Mitglieder anzeigen
-app.get('/team-members/:teamId', (req, res) => {
-  db.all(`
-    SELECT u.username
-    FROM team_requests tr
-    JOIN users u ON tr.player_id = u.id
-    WHERE tr.team_id = ? AND tr.status = 'accepted'
-  `, [req.params.teamId], (err, rows) => {
-    if (err) return res.send('Fehler beim Abrufen der Mitglieder');
-    res.json(rows);
-  });
-});
-
 // Team verlassen
 app.post('/leave-team', (req, res) => {
   const userId = req.session.userId;
@@ -157,7 +132,83 @@ app.post('/leave-team', (req, res) => {
   });
 });
 
-// Spieler suchen Team
+// Teams anzeigen
+app.get('/teams', (req, res) => {
+  db.all(`
+    SELECT t.*, (SELECT COUNT(*) FROM team_requests WHERE team_id = t.id AND status = 'accepted') as member_count
+    FROM teams t
+  `, [], (err, teams) => {
+    if (err) return res.send('Fehler beim Laden der Teams');
+    res.json(teams);
+  });
+});
+
+// Team-Mitglieder
+app.get('/team-members/:teamId', (req, res) => {
+  db.all(`
+    SELECT u.username
+    FROM team_requests tr
+    JOIN users u ON tr.player_id = u.id
+    WHERE tr.team_id = ? AND tr.status = 'accepted'
+  `, [req.params.teamId], (err, rows) => {
+    if (err) return res.send('Fehler beim Abrufen der Mitglieder');
+    res.json(rows);
+  });
+});
+
+// Anfrage an Team
+app.post('/request-to-team', (req, res) => {
+  const { team_id } = req.body;
+  const userId = req.session.userId;
+
+  db.get(`SELECT * FROM team_requests WHERE player_id = ? AND status = 'accepted'`, [userId], (err, exists) => {
+    if (exists) return res.send('Du bist bereits in einem Team.');
+
+    db.get(`SELECT * FROM team_requests WHERE player_id = ? AND team_id = ?`, [userId, team_id], (err2, reqExist) => {
+      if (reqExist) return res.send('Du hast bereits eine Anfrage gesendet.');
+
+      db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'pending')`, [userId, team_id], err3 => {
+        if (err3) return res.send('Fehler bei Anfrage');
+        res.redirect('/dashboard.html?success=anfrage');
+      });
+    });
+  });
+});
+// Anfrage anzeigen (Team-Leader)
+app.get('/requests', (req, res) => {
+  db.all(`
+    SELECT tr.id, u.username as player_username, t.name as team_name, tr.status
+    FROM team_requests tr
+    JOIN users u ON tr.player_id = u.id
+    JOIN teams t ON tr.team_id = t.id
+    WHERE t.creator_id = ?
+  `, [req.session.userId], (err, rows) => {
+    if (err) return res.send('Fehler beim Laden der Anfragen');
+    res.json(rows);
+  });
+});
+
+// Anfrage bearbeiten
+app.post('/handle-request', (req, res) => {
+  const { request_id, action } = req.body;
+  const status = action === 'accept' ? 'accepted' : 'declined';
+  db.run(`UPDATE team_requests SET status = ? WHERE id = ?`, [status, request_id], err => {
+    if (err) return res.send('Fehler beim Bearbeiten');
+    res.redirect('/dashboard.html');
+  });
+});
+
+// Spieler sucht Team setzen
+app.post('/set-looking', (req, res) => {
+  const { status } = req.body;
+  const looking = status === '1' ? 1 : 0;
+  db.run(`UPDATE users SET looking_for_team = ? WHERE id = ?`, [looking, req.session.userId], err => {
+    if (err) return res.send('Fehler beim Speichern des Suchstatus');
+    res.redirect('/dashboard.html');
+  });
+});
+
+// Spieler, die ein Team suchen
 app.get('/players-looking-detailed', (req, res) => {
   db.all(`
     SELECT id, username FROM users
@@ -181,7 +232,7 @@ app.post('/invite-player', (req, res) => {
   });
 });
 
-// Einladungen anzeigen
+// Eigene Einladungen
 app.get('/my-invitations', (req, res) => {
   db.all(`
     SELECT i.id, t.name as team_name, i.team_id
@@ -208,51 +259,55 @@ app.post('/handle-invitation', (req, res) => {
   }
   res.redirect('/dashboard.html');
 });
-
-// Anfrage an Team senden
-app.post('/request-to-team', (req, res) => {
-  const { team_id } = req.body;
-  const userId = req.session.userId;
-
-  db.get(`SELECT * FROM team_requests WHERE player_id = ? AND status = 'accepted'`, [userId], (err, exists) => {
-    if (exists) return res.send('Du bist bereits in einem Team.');
-
-    db.get(`SELECT * FROM team_requests WHERE player_id = ? AND team_id = ?`, [userId, team_id], (err2, reqExist) => {
-      if (reqExist) return res.send('Du hast bereits eine Anfrage gesendet.');
-
-      db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'pending')`, [userId, team_id], err3 => {
-        if (err3) return res.send('Fehler bei Anfrage');
-        res.redirect('/dashboard.html?success=anfrage');
-      });
-    });
+// Admin-Middleware
+function isAdmin(req, res, next) {
+  if (!req.session.userId) return res.redirect('/login.html');
+  db.get('SELECT is_admin FROM users WHERE id = ?', [req.session.userId], (err, row) => {
+    if (row && row.is_admin) {
+      next();
+    } else {
+      res.status(403).send('Nicht berechtigt');
+    }
   });
+}
+
+// Admin-Panel anzeigen
+app.get('/admin', isAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// Anfragen für Team-Leader sichtbar machen
-app.get('/requests', (req, res) => {
-  db.all(`
-    SELECT tr.id, u.username as player_username, t.name as team_name, tr.status
-    FROM team_requests tr
-    JOIN users u ON tr.player_id = u.id
-    JOIN teams t ON tr.team_id = t.id
-    WHERE t.creator_id = ?
-  `, [req.session.userId], (err, rows) => {
-    if (err) return res.send('Fehler beim Laden der Anfragen');
+// Nutzerliste
+app.get('/admin/users', isAdmin, (req, res) => {
+  db.all(`SELECT id, username, is_admin FROM users`, [], (err, rows) => {
     res.json(rows);
   });
 });
 
-// Anfrage annehmen/ablehnen
-app.post('/handle-request', (req, res) => {
-  const { request_id, action } = req.body;
-  const status = action === 'accept' ? 'accepted' : 'declined';
-  db.run(`UPDATE team_requests SET status = ? WHERE id = ?`, [status, request_id], err => {
-    if (err) return res.send('Fehler beim Bearbeiten');
-    res.redirect('/dashboard.html');
+// Nutzer löschen
+app.post('/admin/delete-user', isAdmin, (req, res) => {
+  const { user_id } = req.body;
+  db.run(`DELETE FROM users WHERE id = ?`, [user_id], err => {
+    if (err) return res.send('Fehler');
+    res.redirect('/admin');
   });
 });
 
-// Server starten
-app.listen(port, () => {
-  console.log(`🚀 Server läuft auf http://localhost:${port}`);
+// Teams anzeigen
+app.get('/admin/teams', isAdmin, (req, res) => {
+  db.all(`SELECT * FROM teams`, [], (err, rows) => {
+    res.json(rows);
+  });
 });
+
+// Team löschen
+app.post('/admin/delete-team', isAdmin, (req, res) => {
+  const { team_id } = req.body;
+  db.serialize(() => {
+    db.run(`DELETE FROM team_requests WHERE team_id = ?`, [team_id]);
+    db.run(`DELETE FROM teams WHERE id = ?`, [team_id], err => {
+      if (err) return res.send('Fehler');
+      res.redirect('/admin');
+    });
+  });
+});
+
