@@ -310,4 +310,7 @@ app.post('/admin/delete-team', isAdmin, (req, res) => {
     });
   });
 });
+app.listen(port, () => {
+  console.log(`✅ Server läuft auf http://localhost:${port}`);
+});
 
