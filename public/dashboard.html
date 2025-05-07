@@ -86,22 +86,7 @@
           content.appendChild(teamSection);
         });
 
-      fetch('/requests')
-        .then(res => res.json())
-        .then(requests => {
-          const requestSection = document.createElement('div');
-          requestSection.innerHTML = '<h2>Meine Anfragen</h2>';
-          requests.forEach(req => {
-            requestSection.innerHTML += `
-              <div class="card">
-                <p>${req.team_name ? 'Team: ' + req.team_name : 'Spieler: ' + req.player_username}</p>
-                <p>Status: ${req.status}</p>
-              </div>
-            `;
-          });
-          content.appendChild(requestSection);
-        });
-
+      // Spieler, die ein Team suchen
       fetch('/players-looking-detailed')
         .then(res => res.json())
         .then(players => {
@@ -109,25 +94,27 @@
             .then(res => res.json())
             .then(teams => {
               const myTeam = teams.find(t => t.creator_id === currentUserId);
-              const playerSection = document.createElement('div');
-              playerSection.innerHTML = '<h2>Spieler suchen ein Team</h2>';
-              players.forEach(p => {
-                playerSection.innerHTML += `
-                  <div class="card">
-                    <p>${p.username}</p>
-                    ${myTeam ? `
-                    <form action="/invite-player" method="POST">
-                      <input type="hidden" name="team_id" value="${myTeam.id}">
-                      <input type="hidden" name="player_id" value="${p.id}">
-                      <button type="submit">Einladen</button>
-                    </form>` : ''}
-                  </div>
-                `;
-              });
-              content.appendChild(playerSection);
+              if (myTeam) {
+                const playerSection = document.createElement('div');
+                playerSection.innerHTML = '<h2>Spieler suchen ein Team</h2>';
+                players.forEach(p => {
+                  playerSection.innerHTML += `
+                    <div class="card">
+                      <p>${p.username}</p>
+                      <form action="/invite-player" method="POST">
+                        <input type="hidden" name="team_id" value="${myTeam.id}">
+                        <input type="hidden" name="player_id" value="${p.id}">
+                        <button type="submit">Einladen</button>
+                      </form>
+                    </div>
+                  `;
+                });
+                content.appendChild(playerSection);
+              }
             });
         });
 
+      // Eigene Einladungen
       fetch('/my-invitations')
         .then(res => res.json())
         .then(invitations => {
@@ -150,8 +137,33 @@
             content.appendChild(invitationSection);
           }
         });
+
+      // Anfragen an mein Team (wenn ich Leader bin)
+      fetch('/requests')
+        .then(res => res.json())
+        .then(requests => {
+          if (requests.length > 0) {
+            const requestSection = document.createElement('div');
+            requestSection.innerHTML = '<h2>Anfragen an dein Team</h2>';
+            requests.forEach(req => {
+              requestSection.innerHTML += `
+                <div class="card">
+                  <p><strong>Spieler:</strong> ${req.player_username}</p>
+                  <p><strong>Team:</strong> ${req.team_name}</p>
+                  <p>Status: ${req.status}</p>
+                  ${req.status === 'pending' ? `
+                    <form action="/handle-request" method="POST">
+                      <input type="hidden" name="request_id" value="${req.id}">
+                      <button type="submit" name="action" value="accept">Annehmen</button>
+                      <button type="submit" name="action" value="decline">Ablehnen</button>
+                    </form>` : ''}
+                </div>
+              `;
+            });
+            content.appendChild(requestSection);
+          }
+        });
     }
   </script>
 </body>
 </html>
-
