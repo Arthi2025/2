@@ -8,6 +8,7 @@
 <body>
   <h1>Dashboard</h1>
   <a href="/logout">Logout</a>
+  <div id="message-box"></div>
 
   <div class="flex-row">
     <form action="/create-team" method="POST" class="form-box">
@@ -30,38 +31,61 @@
 
   <script>
     const content = document.getElementById('dashboard-content');
+    const messageBox = document.getElementById('message-box');
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get('success') === 'anfrage') {
+      messageBox.innerHTML = '<p class="success-message">✅ Anfrage erfolgreich gesendet!</p>';
+    }
+    if (params.get('success') === 'left') {
+      messageBox.innerHTML = '<p class="success-message">✅ Du hast dein Team verlassen.</p>';
+    }
+
     let currentUserId = null;
+    let currentUserName = null;
 
     fetch('/my-id')
       .then(res => res.json())
       .then(data => {
         currentUserId = data.id;
+        currentUserName = data.username;
         loadDashboard();
       });
 
     function loadDashboard() {
-      // Teams anzeigen
       fetch('/teams')
         .then(res => res.json())
         .then(teams => {
           const teamSection = document.createElement('div');
           teamSection.innerHTML = '<h2>Teamsuche</h2>';
+
           teams.forEach(team => {
-            teamSection.innerHTML += `
-              <div class="card">
-                <h3>${team.name} (${team.member_count}/5)</h3>
-                ${team.member_count < 5 ? `
-                <form action="/request-to-team" method="POST">
-                  <input type="hidden" name="team_id" value="${team.id}">
-                  <button type="submit">Anfrage senden</button>
-                </form>` : '<p>Team ist voll</p>'}
-              </div>
-            `;
+            fetch(`/team-members/${team.id}`)
+              .then(res => res.json())
+              .then(members => {
+                const usernames = members.map(m => m.username);
+                const isMember = usernames.includes(currentUserName);
+
+                teamSection.innerHTML += `
+                  <div class="card">
+                    <h3>${team.name} (${team.member_count}/5)</h3>
+                    <p><strong>Mitglieder:</strong> ${usernames.join(', ')}</p>
+                    ${team.member_count < 5 && !isMember ? `
+                      <form action="/request-to-team" method="POST">
+                        <input type="hidden" name="team_id" value="${team.id}">
+                        <button type="submit">Anfrage senden</button>
+                      </form>` : ''}
+                    ${isMember && currentUserId !== team.creator_id ? `
+                      <form action="/leave-team" method="POST">
+                        <button type="submit">Team verlassen</button>
+                      </form>` : ''}
+                  </div>
+                `;
+              });
           });
           content.appendChild(teamSection);
         });
 
-      // Anfragen anzeigen
       fetch('/requests')
         .then(res => res.json())
         .then(requests => {
@@ -78,7 +102,6 @@
           content.appendChild(requestSection);
         });
 
-      // Spieler die ein Team suchen anzeigen
       fetch('/players-looking-detailed')
         .then(res => res.json())
         .then(players => {
@@ -105,7 +128,6 @@
             });
         });
 
-      // Einladungen anzeigen
       fetch('/my-invitations')
         .then(res => res.json())
         .then(invitations => {
@@ -132,3 +154,4 @@
   </script>
 </body>
 </html>
+
