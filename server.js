@@ -1,4 +1,3 @@
-// server.js
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const bcrypt = require('bcrypt');
@@ -49,6 +48,7 @@ db.serialize(() => {
   )`);
 });
 
+// Registrierung
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -63,6 +63,7 @@ app.post('/register', async (req, res) => {
   });
 });
 
+// Login
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
   db.get(`SELECT * FROM users WHERE username = ?`, [username], async (err, user) => {
@@ -75,16 +76,19 @@ app.post('/login', (req, res) => {
   });
 });
 
+// Benutzer-ID + Name bereitstellen
+app.get('/my-id', (req, res) => {
+  if (!req.session.userId) return res.status(401).send('Nicht eingeloggt');
+  res.json({ id: req.session.userId, username: req.session.username });
+});
+
+// Logout
 app.get('/logout', (req, res) => {
   req.session.destroy();
   res.redirect('/login.html');
 });
 
-app.get('/my-id', (req, res) => {
-  if (!req.session.userId) return res.status(401).send('Nicht eingeloggt');
-  res.json({ id: req.session.userId });
-});
-
+// Team erstellen
 app.post('/create-team', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   const { name } = req.body;
@@ -98,6 +102,7 @@ app.post('/create-team', (req, res) => {
   });
 });
 
+// Suchstatus setzen
 app.post('/set-looking', (req, res) => {
   const { status } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -108,28 +113,83 @@ app.post('/set-looking', (req, res) => {
   });
 });
 
+// Teams anzeigen
 app.get('/teams', (req, res) => {
-  db.all(`SELECT t.*, (SELECT COUNT(*) FROM team_requests tr WHERE tr.team_id = t.id AND tr.status = 'accepted') as member_count FROM teams t`, [], (err, teams) => {
+  db.all(`
+    SELECT t.*, (SELECT COUNT(*) FROM team_requests tr WHERE tr.team_id = t.id AND tr.status = 'accepted') as member_count
+    FROM teams t
+  `, [], (err, teams) => {
     if (err) return res.send('Fehler beim Laden der Teams');
     res.json(teams);
   });
 });
 
+// Mitglieder eines Teams
+app.get('/team-members/:teamId', (req, res) => {
+  const teamId = req.params.teamId;
+  db.all(`
+    SELECT u.username
+    FROM team_requests tr
+    JOIN users u ON tr.player_id = u.id
+    WHERE tr.team_id = ? AND tr.status = 'accepted'
+  `, [teamId], (err, rows) => {
+    if (err) return res.send('Fehler beim Abrufen der Mitglieder');
+    res.json(rows);
+  });
+});
+
+// Team verlassen
+app.post('/leave-team', (req, res) => {
+  const userId = req.session.userId;
+  if (!userId) return res.redirect('/login.html');
+
+  db.get(`
+    SELECT t.id, t.creator_id
+    FROM team_requests tr
+    JOIN teams t ON tr.team_id = t.id
+    WHERE tr.player_id = ? AND tr.status = 'accepted'
+  `, [userId], (err, result) => {
+    if (err || !result) return res.send('Kein Team gefunden');
+    if (result.creator_id === userId) {
+      return res.send('Team-Leader können das Team nicht verlassen.');
+    }
+
+    db.run(`DELETE FROM team_requests WHERE player_id = ? AND team_id = ?`, [userId, result.id], (err2) => {
+      if (err2) return res.send('Fehler beim Verlassen');
+      res.redirect('/dashboard.html?success=left');
+    });
+  });
+});
+
+// Eigene Anfragen
 app.get('/requests', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
-  db.all(`SELECT tr.id, u.username as player_username, t.name as team_name, t.creator_id, tr.status FROM team_requests tr JOIN users u ON tr.player_id = u.id JOIN teams t ON tr.team_id = t.id WHERE t.creator_id = ? OR tr.player_id = ?`, [req.session.userId, req.session.userId], (err, rows) => {
+  db.all(`
+    SELECT tr.id, u.username as player_username, t.name as team_name, t.creator_id, tr.status
+    FROM team_requests tr
+    JOIN users u ON tr.player_id = u.id
+    JOIN teams t ON tr.team_id = t.id
+    WHERE t.creator_id = ? OR tr.player_id = ?
+  `, [req.session.userId, req.session.userId], (err, rows) => {
     if (err) return res.send('Fehler');
     res.json(rows);
   });
 });
 
+// Spieler die ein Team suchen
 app.get('/players-looking-detailed', (req, res) => {
-  db.all(`SELECT u.id, u.username FROM users u WHERE u.looking_for_team = 1 AND u.id NOT IN (SELECT player_id FROM team_requests WHERE status = 'accepted')`, [], (err, rows) => {
+  db.all(`
+    SELECT u.id, u.username
+    FROM users u
+    WHERE u.looking_for_team = 1
+      AND u.id NOT IN (SELECT player_id FROM team_requests WHERE status = 'accepted')
+  `, [], (err, rows) => {
     if (err) return res.send('Fehler');
     res.json(rows);
   });
 });
 
+// Einladung senden
 app.post('/invite-player', (req, res) => {
   const { player_id, team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -142,6 +202,7 @@ app.post('/invite-player', (req, res) => {
   });
 });
 
+// Einladungen für den Spieler
 app.get('/my-invitations', (req, res) => {
   if (!req.session.userId) return res.redirect('/login.html');
   db.all(`
@@ -155,6 +216,7 @@ app.get('/my-invitations', (req, res) => {
   });
 });
 
+// Einladung annehmen / ablehnen
 app.post('/handle-invitation', (req, res) => {
   const { invitation_id, action, team_id } = req.body;
   if (!req.session.userId) return res.redirect('/login.html');
@@ -170,6 +232,28 @@ app.post('/handle-invitation', (req, res) => {
   }
 
   res.redirect('/dashboard.html');
+});
+
+// Anfrage an Team senden
+app.post('/request-to-team', (req, res) => {
+  const { team_id } = req.body;
+  const userId = req.session.userId;
+
+  if (!userId) return res.redirect('/login.html');
+
+  db.get(`SELECT * FROM team_requests WHERE player_id = ? AND status = 'accepted'`, [userId], (err, existing) => {
+    if (err) return res.send('Fehler beim Überprüfen des Teamstatus');
+    if (existing) return res.send('Du bist bereits in einem Team.');
+
+    db.get(`SELECT * FROM team_requests WHERE player_id = ? AND team_id = ?`, [userId, team_id], (err2, existingRequest) => {
+      if (existingRequest) return res.send('Du hast bereits eine Anfrage an dieses Team gestellt.');
+
+      db.run(`INSERT INTO team_requests (player_id, team_id, status) VALUES (?, ?, 'pending')`, [userId, team_id], (err3) => {
+        if (err3) return res.send('Fehler bei Anfrage');
+        res.redirect('/dashboard.html?success=anfrage');
+      });
+    });
+  });
 });
 
 app.listen(port, () => {
